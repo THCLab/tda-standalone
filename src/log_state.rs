@@ -196,6 +196,9 @@ impl LogState {
 
         self.state = self.state.clone().verify_and_apply(&rot)?;
 
+        // Shouldn't we add rotation event to log?
+        self.log.push(rot.clone());
+
         self.keypair = keypair;
         self.next_keypair = next_keypair;
 

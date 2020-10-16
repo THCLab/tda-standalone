@@ -12,7 +12,4 @@ To run client-only instance at localhost:1234 use:
 ```
 cargo run -- -H "localhost:1234" -c
 ```
-or just
-```
-cargo run -- -H "localhost:1234"
-```
+By default application runs in client mode.
