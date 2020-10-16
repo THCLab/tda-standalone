@@ -9,3 +9,4 @@ edition = "2018"
 [dependencies]
 keri = { git = "https://github.com/decentralized-identity/keriox", branch = "test/direct_mode"}
 ursa = { version = "0.3", default-features = false, features = ["portable"]}
+clap = "2.33.3"

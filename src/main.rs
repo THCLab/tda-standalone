@@ -4,6 +4,8 @@ use std::{
     str::from_utf8,
 };
 
+use clap::App as clapapp;
+use clap::Arg;
 use keri::{event_message::parse::signed_message, state::IdentifierState};
 mod log_state;
 
@@ -76,11 +78,49 @@ impl Instance {
 }
 
 fn main() {
+    // Parse command line arguments.
+    let matches = clapapp::new("get-command-line-args")
+        .arg(
+            Arg::with_name("host:port")
+                .short('H'.to_string())
+                .help("is the host:port of the other instance to connect to, ie: localhost:12345")
+                .takes_value(true)
+                .required(true),
+        )
+        .arg(
+            Arg::with_name("is_server")
+                .short('s'.to_string())
+                .help("act as server")
+                .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("is_client")
+                .short('c'.to_string())
+                .help("act as client")
+                .takes_value(false),
+        )
+        .get_matches();
+
+    let address = matches.value_of("host:port").expect("Invalid socket");
+
     let mut alice = Instance::new(
-        "0.0.0.0:3333".to_string(),
+        address.to_string(),
         log_state::LogState::new().unwrap(),
         IdentifierState::default(),
     );
 
-    alice.listen();
+    match (
+        matches.is_present("is_server"),
+        matches.is_present("is_client"),
+    ) {
+        (true, true) => println!("Can't be server and client at the same time."),
+        (true, false) => {
+            // Act as server.
+            alice.listen()
+        }
+        _ => {
+            // Act as client
+            println!("Client")
+        }
+    }
 }
