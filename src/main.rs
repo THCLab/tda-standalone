@@ -31,15 +31,17 @@ impl Instance {
         let listener = TcpListener::bind(address.clone()).unwrap();
         println!("Server listening {}", address.clone());
         // accept connections and process them
-        for stream in listener.incoming() {
-            match stream {
-                Ok(stream) => {
-                    println!("New connection: {}", stream.peer_addr().unwrap());
-                    self.handle_connection(stream);
-                }
-                Err(e) => {
-                    // connection failed
-                    println!("Error: {}", e);
+        loop {
+            for stream in listener.incoming() {
+                match stream {
+                    Ok(stream) => {
+                        println!("New connection: {}", stream.peer_addr().unwrap());
+                        self.handle_connection(stream);
+                    }
+                    Err(e) => {
+                        // connection failed
+                        println!("Error: {}", e);
+                    }
                 }
             }
         }
@@ -51,51 +53,70 @@ impl Instance {
         let mut buffer = [0; 1024];
         match stream.read(&mut buffer) {
             Ok(size) => {
-                // Deserialize signed bob's msg.
-                let msg = signed_message(from_utf8(&buffer[..size]).unwrap())
-                    .unwrap()
-                    .1;
-
-                // Process Bob's message.
-                let respond = match msg.event_message.event.event_data {
-                    // if it's receipt message, verify it and add to sigs_map.
-                    keri::event::event_data::EventData::Vrc(_) => {
-                        self.log
-                            .add_sig(self.bob_state.clone(), msg)
-                            .expect("Can't verify receipt msg");
-                        vec![]
+                let msg = from_utf8(&buffer[..size]);
+                match msg {
+                    Err(_) => {
+                        "Incorrect encoded message, ignore.".to_string()
                     }
-                    // Otherwise respond with alice's last establishment message and receipt message.
-                    _ => {
-                        self.bob_state = self
-                            .bob_state
-                            .clone()
-                            .verify_and_apply(&msg)
-                            .expect("Can't verify bob's message.");
-                        let receipt_for_bob = self
-                            .log
-                            .make_rct(msg.event_message)
-                            .expect("Can't make a receipt");
+                    Ok(msg) => {
+                        println!("Valid message proceed: {}", msg);
+                        // Deserialize signed msg
+                        let des_msg = signed_message(msg);
+                        match des_msg {
+                            Ok(des_msg) => {
+                                let msg = des_msg.1;
+                                // Process incoming message.
+                                let respond = match msg.event_message.event.event_data {
+                                    // if it's receipt message, verify it and add to sigs_map.
+                                    keri::event::event_data::EventData::Vrc(_) => {
+                                        println!("Received receipt message, verifying...");
+                                        self.log
+                                            .add_sig(self.bob_state.clone(), msg)
+                                            .expect("Can't verify receipt msg");
+                                        vec![]
+                                    }
+                                    // Otherwise respond with alice's last establishment message and receipt message.
+                                    _ => {
+                                        self.bob_state = self
+                                            .bob_state
+                                            .clone()
+                                            .verify_and_apply(&msg)
+                                            .expect("Can't verify bob's message.");
+                                        let receipt_for_bob = self
+                                            .log
+                                            .make_rct(msg.event_message)
+                                            .expect("Can't make a receipt");
 
-                        // Respond with alice's lase establishment message, and receipt message.
-                        let alice_last_est = self
-                            .log
-                            .log
-                            .last()
-                            .expect("There is no last alice's establishment event.");
-                        let respond = [
-                            alice_last_est.serialize().unwrap(),
-                            receipt_for_bob.serialize().unwrap(),
-                        ]
-                        .concat();
-                        respond
+                                        // Respond with alice's lase establishment message, and receipt message.
+                                        let alice_last_est = self
+                                            .log
+                                            .log
+                                            .last()
+                                            .expect("There is no last alice's establishment event.");
+                                        let respond = [
+                                            alice_last_est.serialize().unwrap(),
+                                            receipt_for_bob.serialize().unwrap(),
+                                        ]
+                                        .concat();
+                                        respond
+                                    }
+                                };
+                                // Send response to bob.
+                                stream.write(&respond).expect("Can't write to buffer.");
+                                stream.flush().unwrap();
+                                "Ok".to_string()
+                            }
+                            Err(e) => {
+                                "Message not parsed".to_string()
+                            }
+                        }
                     }
-                };
-                // Send response to bob.
-                stream.write(&respond).expect("Can't write to buffer.");
-                stream.flush().unwrap();
+                }
+
+
+                
             }
-            Err(_) => {}
+            Err(e) => { e.to_string() }
         };
     }
     pub fn process_response(&mut self, response: Vec<SignedEventMessage>, address: String ){
@@ -166,60 +187,46 @@ fn main() {
     // Parse command line arguments.
     let matches = clapapp::new("get-command-line-args")
         .arg(
-            Arg::with_name("host:port")
+            Arg::with_name("host")
                 .short('H'.to_string())
-                .help("is the host:port of the other instance to connect to, ie: localhost:12345")
+                .help("hostname on which we would listen, default: localhost")
                 .takes_value(true)
-                .required(true),
         )
         .arg(
-            Arg::with_name("is_server")
-                .short('s'.to_string())
-                .help("act as server")
-                .takes_value(false),
-        )
-        .arg(
-            Arg::with_name("is_client")
-                .short('c'.to_string())
-                .help("act as client")
-                .takes_value(false),
+            Arg::with_name("port")
+            .short('P'.to_string())
+            .help("port on which we would open TCP connections, default: 49152")
+            .takes_value(true)
         )
         .get_matches();
 
-    let address = matches.value_of("host:port").expect("Invalid socket");
+    let host = matches.value_of("host").unwrap_or("localhost");
+    let port = matches.value_of("port").unwrap_or("49152");
+    let address = [host, ":", port].concat();
 
     let mut alice = Instance::new(
         log_state::LogState::new().unwrap(),
         IdentifierState::default(),
     );
 
-    // Decide if run as server or client.
-    match (
-        matches.is_present("is_server"),
-        matches.is_present("is_client"),
-    ) {
-        (true, true) => println!("Can't be server and client at the same time."),
-        (true, false) => {
-            // Act as server.
-            alice.listen(address.to_string())
-        }
-        _ => {
-            // Act as client.
-            // Send alice's inception event to other instance and get its response.
-            let response_msg_from_other =
-                send_to_other(address.to_string(), alice.log.log.last().unwrap());
-            alice.process_response(response_msg_from_other, address.to_string());
-            
+    
+    // Start server and wait for messages
+    alice.listen(address);
+    
+    // Act as client.
+    // Send alice's inception event to other instance and get its response.
+    // let response_msg_from_other =
+    //     send_to_other(address.to_string(), alice.log.log.last().unwrap());
+    // alice.process_response(response_msg_from_other, address.to_string());
+    
 
-            alice.log.rotate();
-            send_to_other(address.to_string(), alice.log.log.last().unwrap());
+    // alice.log.rotate();
+    // send_to_other(address.to_string(), alice.log.log.last().unwrap());
 
-            //alice.log.rotate();
-            //send_to_other(address.to_string(), alice.log.log.last().unwrap());
+    //alice.log.rotate();
+    //send_to_other(address.to_string(), alice.log.log.last().unwrap());
 
-            //alice.log.rotate();
-            //send_to_other(address.to_string(), alice.log.log.last().unwrap());
+    //alice.log.rotate();
+    //send_to_other(address.to_string(), alice.log.log.last().unwrap());
 
-        }
-    }
 }
