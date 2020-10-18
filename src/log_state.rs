@@ -164,20 +164,19 @@ impl LogState {
         )]))
     }
 
-    pub fn make_ixn(&mut self, payload: String, prev_event: SelfAddressingPrefix) -> Result<SignedEventMessage, Error> {
+    pub fn make_ixn(&mut self, payload: &str) -> Result<SignedEventMessage, Error> {
         let dig_seal = DigestSeal {
             dig: SelfAddressingPrefix {
-                derivation: SelfAddressing::Blake2S256,
+                derivation: SelfAddressing::Blake3_256,
                 digest: payload.as_bytes().to_vec(),
             },
         };
-        let l = &self.state.last;
+
         let ev = Event {
             prefix: self.state.prefix.clone(),
             sn: self.state.sn + 1,
             event_data: EventData::Ixn(InteractionEvent {
-                // previous_event_hash: SelfAddressing::Blake3_256.derive(&self.state.last),
-                previous_event_hash: prev_event,
+                previous_event_hash: SelfAddressing::Blake3_256.derive(&self.state.last), 
                 data: vec![Seal::Digest(dig_seal)],
             }),
         }
@@ -190,9 +189,9 @@ impl LogState {
                 .map_err(|e| Error::CryptoError(e))?,
             0,
         )]);
-        println!("State 1: {:?}", self.state);
+
         self.state = self.state.clone().verify_and_apply(&ixn)?;
-        println!("State 2: {:?}", self.state);
+        self.log.push(ixn.clone());
         Ok(ixn)
     }
 

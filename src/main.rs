@@ -9,8 +9,8 @@ use tokio::{
 use clap::App as clapapp;
 use clap::Arg;
 use keri::{
-    event_message::parse,
-    event_message::SignedEventMessage, prefix::Prefix, state::IdentifierState, event::event_data::EventData,
+    event::event_data::EventData, event_message::parse, event_message::SignedEventMessage,
+    prefix::Prefix, state::IdentifierState,
 };
 
 mod log_state;
@@ -33,9 +33,7 @@ impl KeriInstance {
         let mut response: Vec<u8> = vec![];
 
         // Deserialize signed msg
-        let msg = parse::signed_message(event)
-        .unwrap()
-        .1;
+        let msg = parse::signed_message(event).unwrap().1;
         let m = msg.clone();
 
         println!("Process keri event ...");
@@ -48,7 +46,10 @@ impl KeriInstance {
                 self.log
                     .add_sig(&self.state.clone(), msg)
                     .expect("Can't verify receipt msg");
-                    println!("Got receipt of {:?}-th event", m.clone().event_message.event.sn);
+                println!(
+                    "Got receipt of {:?}-th event",
+                    m.clone().event_message.event.sn
+                );
                 vec![]
             }
             // if it's inception event respond with last establishment message and receipt message.
@@ -69,12 +70,12 @@ impl KeriInstance {
                     .log
                     .last()
                     .expect("There is no last alice's establishment event.");
-                let respond = [
-                    last_est.serialize().unwrap(),
-                    receipt.serialize().unwrap(),
-                ]
-                .concat();
-                println!("Got inception event from {:?}.", m.event_message.event.prefix.to_str());
+                let respond =
+                    [last_est.serialize().unwrap(), receipt.serialize().unwrap()].concat();
+                println!(
+                    "Got inception event from {:?}.",
+                    m.event_message.event.prefix.to_str()
+                );
                 respond
             }
             // if it's rotation event, respond with receipt event.
@@ -89,12 +90,15 @@ impl KeriInstance {
                     .make_rct(msg.event_message)
                     .expect("Can't make a receipt");
 
-                let respond =
-                    receipt.serialize().unwrap();
-                println!("Got rotation event of sn = {:?} from {:?}.", m.event_message.event.sn, m.event_message.event.prefix.to_str());
+                let respond = receipt.serialize().unwrap();
+                println!(
+                    "Got rotation event of sn = {:?} from {:?}.",
+                    m.event_message.event.sn,
+                    m.event_message.event.prefix.to_str()
+                );
                 respond
             }
-            _ => {response }
+            _ => response,
         };
         response
     }
@@ -244,12 +248,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                 iter.next();
                                 // Get payload
                                 let payload = iter.next().unwrap();
-                                println!("payload: {}", payload);
                                 let mut keri = keri.lock().await;
-                                // TODO make interaction event
-                                // let ixn = keri.log.make_ixn(payload.to_string());
-                                // println!("IXN: {:?} \n", ixn);
-                                // println!("Last: {:?}\n", keri.log.log.last().unwrap());
+                                keri.log.make_ixn(payload);
                             }
                             // If we do not match any command then probably we are getting keri events
                             _ => {
@@ -257,7 +257,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                 println!("Keri event: {} ", msg);
                                 let mut keri = keri.lock().await;
                                 let receipt = keri.parse_event(&msg.to_string());
-                                println!("Respond with {}", String::from_utf8(receipt.clone()).unwrap());
+                                println!(
+                                    "Respond with {}",
+                                    String::from_utf8(receipt.clone()).unwrap()
+                                );
                                 // Send back the receipt
 
                                 socket
