@@ -3,13 +3,22 @@ Trusted Digital Assistant - standalone version, leveraging KERI, OCA and DDE
 
 ## Usage
 
-To run server-only instance at localhost:1234 use:
-```
-cargo run -- -H "localhost:1234" -s
-```
+To run
 
-To run client-only instance at localhost:1234 use:
-```
-cargo run -- -H "localhost:1234" -c
-```
-By default application runs in client mode.
+    cargo run -- -H localhost -P 1234
+
+## Development
+
+For development you can use cargo watch and run code like this:
+
+    cargo watch -x 'run -- -P 1234'
+
+By default application runs on localhost and port 49152
+
+
+To control TDA you can use telnet connecting on the setup port and send
+commands. Supported commands:
+
+SEND host port - send last event to given TDA (via TCP)
+ROTA - generate rotate event
+

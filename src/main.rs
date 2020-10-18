@@ -1,189 +1,149 @@
-use std::net::{TcpListener, TcpStream};
 use std::{
-    io::{Read, Write},
     str::from_utf8,
+    error::Error,
 };
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
+use tokio::net::TcpStream;
+
 
 use clap::App as clapapp;
 use clap::Arg;
 use keri::{
-    event_message::parse::signed_event_stream, event_message::parse::signed_message,
+    event_message::parse,
     event_message::SignedEventMessage, state::IdentifierState,
 };
+
 mod log_state;
 
 #[derive(Clone)]
-struct Instance {
+struct KeriInstance {
     log: log_state::LogState,
-    bob_state: IdentifierState,
+    state: IdentifierState,
 }
 
-impl Instance {
-    fn new(log: log_state::LogState, bob_state: IdentifierState) -> Self {
-        Instance {
+impl KeriInstance {
+    fn new(log: log_state::LogState, state: IdentifierState) -> Self {
+        KeriInstance {
             log: log,
-            bob_state: bob_state,
+            state: state,
         }
     }
 
-    // Server
-    fn listen(&mut self, address: String) {
-        let listener = TcpListener::bind(address.clone()).unwrap();
-        println!("Server listening {}", address.clone());
-        // accept connections and process them
-        loop {
-            for stream in listener.incoming() {
-                match stream {
-                    Ok(stream) => {
-                        println!("New connection: {}", stream.peer_addr().unwrap());
-                        self.handle_connection(stream);
-                    }
-                    Err(e) => {
-                        // connection failed
-                        println!("Error: {}", e);
-                    }
-                }
+    fn parse_event(&mut self, event: &String) {
+        // Deserialize signed msg
+        let des_msg = parse::signed_message(event);
+        match des_msg {
+            Ok(des_msg) => {
+                println!("Message received: {} ", des_msg.0);
+                let msg = des_msg.1;
+                // // Process incoming message.
+                // let respond = match msg.event_message.event.event_data {
+                //     // if it's receipt message, verify it and add to sigs_map.
+                //     keri::event::event_data::EventData::Vrc(_) => {
+                //         println!("Received receipt message, verifying...");
+                //         self.log
+                //             .add_sig(self.bob_state.clone(), msg)
+                //             .expect("Can't verify receipt msg");
+                //         vec![]
+                //     }
+                //     // Otherwise respond with alice's last establishment message and receipt message.
+                //     _ => {
+                //         self.bob_state = self
+                //             .bob_state
+                //             .clone()
+                //             .verify_and_apply(&msg)
+                //             .expect("Can't verify bob's message.");
+                //         let receipt_for_bob = self
+                //             .log
+                //             .make_rct(msg.event_message)
+                //             .expect("Can't make a receipt");
+
+                //         // Respond with alice's lase establishment message, and receipt message.
+                //         let alice_last_est = self
+                //             .log
+                //             .log
+                //             .last()
+                //             .expect("There is no last alice's establishment event.");
+                //         let respond = [
+                //             alice_last_est.serialize().unwrap(),
+                //             receipt_for_bob.serialize().unwrap(),
+                //         ]
+                //         .concat();
+                //         respond
+                //     }
+                // };
+                // // Send response to bob.
+                // stream.write(&respond).expect("Can't write to buffer.");
+                // stream.flush().unwrap();
             }
-        }
-        // close the socket server
-        drop(listener);
-    }
-
-    fn handle_connection(&mut self, mut stream: TcpStream) {
-        let mut buffer = [0; 1024];
-        match stream.read(&mut buffer) {
-            Ok(size) => {
-                let msg = from_utf8(&buffer[..size]);
-                match msg {
-                    Err(_) => {
-                        "Incorrect encoded message, ignore.".to_string()
-                    }
-                    Ok(msg) => {
-                        println!("Valid message proceed: {}", msg);
-                        // Deserialize signed msg
-                        let des_msg = signed_message(msg);
-                        match des_msg {
-                            Ok(des_msg) => {
-                                let msg = des_msg.1;
-                                // Process incoming message.
-                                let respond = match msg.event_message.event.event_data {
-                                    // if it's receipt message, verify it and add to sigs_map.
-                                    keri::event::event_data::EventData::Vrc(_) => {
-                                        println!("Received receipt message, verifying...");
-                                        self.log
-                                            .add_sig(self.bob_state.clone(), msg)
-                                            .expect("Can't verify receipt msg");
-                                        vec![]
-                                    }
-                                    // Otherwise respond with alice's last establishment message and receipt message.
-                                    _ => {
-                                        self.bob_state = self
-                                            .bob_state
-                                            .clone()
-                                            .verify_and_apply(&msg)
-                                            .expect("Can't verify bob's message.");
-                                        let receipt_for_bob = self
-                                            .log
-                                            .make_rct(msg.event_message)
-                                            .expect("Can't make a receipt");
-
-                                        // Respond with alice's lase establishment message, and receipt message.
-                                        let alice_last_est = self
-                                            .log
-                                            .log
-                                            .last()
-                                            .expect("There is no last alice's establishment event.");
-                                        let respond = [
-                                            alice_last_est.serialize().unwrap(),
-                                            receipt_for_bob.serialize().unwrap(),
-                                        ]
-                                        .concat();
-                                        respond
-                                    }
-                                };
-                                // Send response to bob.
-                                stream.write(&respond).expect("Can't write to buffer.");
-                                stream.flush().unwrap();
-                                "Ok".to_string()
-                            }
-                            Err(e) => {
-                                "Message not parsed".to_string()
-                            }
-                        }
-                    }
-                }
-
-
-                
-            }
-            Err(e) => { e.to_string() }
-        };
-    }
-    pub fn process_response(&mut self, response: Vec<SignedEventMessage>, address: String ){
-        // Response is vec of SignedMessage. Handle it one by one. Apply establishment event
-        // to other_state and handle receipt event.
-        for sig_msg in response {
-            match sig_msg.event_message.event.event_data {
-                // If sig_msg is establishment event, update self.bob_state, and send receipt to bob.
-                keri::event::event_data::EventData::Icp(_)
-                | keri::event::event_data::EventData::Rot(_) => {
-                    self.bob_state =
-                        self.bob_state.clone().verify_and_apply(&sig_msg).expect("Can't verify bob's mesage.");
-                    // Send receipt of message sig_msg.
-                    let rcpt = self.log.make_rct(sig_msg.event_message);
-                    send_to_other(address.to_string(), &rcpt.unwrap());
-                }
-                // If sig_msg is receipt event, verify it and add to sigs_map.
-                keri::event::event_data::EventData::Vrc(_) => self
-                    .log
-                    .add_sig(self.bob_state.clone(), sig_msg)
-                    .expect("Can't verify receipt msg."),
-                _ => {}
+            Err(e) => {
             }
         }
     }
 }
+//                     }
+//                 }
+//             }
+//             Err(e) => { }
+//         };
+//     }
+//     pub fn process_response(&mut self, response: Vec<SignedEventMessage>, address: String ){
+//         // Response is vec of SignedMessage. Handle it one by one. Apply establishment event
+//         // to other_state and handle receipt event.
+//         for sig_msg in response {
+//             match sig_msg.event_message.event.event_data {
+//                 // If sig_msg is establishment event, update self.bob_state, and send receipt to bob.
+//                 keri::event::event_data::EventData::Icp(_)
+//                 | keri::event::event_data::EventData::Rot(_) => {
+//                     self.bob_state =
+//                         self.bob_state.clone().verify_and_apply(&sig_msg).expect("Can't verify bob's mesage.");
+//                     // Send receipt of message sig_msg.
+//                     let rcpt = self.log.make_rct(sig_msg.event_message);
+//                     send_to_other(address.to_string(), &rcpt.unwrap());
+//                 }
+//                 // If sig_msg is receipt event, verify it and add to sigs_map.
+//                 keri::event::event_data::EventData::Vrc(_) => self
+//                     .log
+//                     .add_sig(self.bob_state.clone(), sig_msg)
+//                     .expect("Can't verify receipt msg."),
+//                 _ => {
 
-// Client
-fn send_to_other(address: String, msg: &SignedEventMessage) -> Vec<SignedEventMessage> {
+//                 }
+//             }
+//         }
+//     }
+// }
+
+async fn send_event(address: String) -> Result<(), Box<dyn Error>> {
+    println!("Connecting to TDA on: {}", address);
+    let mut stream = TcpStream::connect(address).await?;
+
+    // TODO find out how to get the event through here
+    // let lastEvent = keri.log.log.last().unwrap();
+    let event = "last event"; //lastEvent.serialize().unwrap().clone();
+    let result = stream.write(event.as_bytes()).await;
+    println!("wrote to stream; success={:?}", result.is_ok());
+
+    // Read the receipt
+    let mut buffer = [0; 1024];
     let mut receipt_msgs: Vec<SignedEventMessage> = vec![];
-    match TcpStream::connect(address.clone()) {
-        Ok(mut stream) => {
-            println!("Successfully connected with alice ({}) \n", address);
 
-            // Serialize bob's signed message.
-            let serialized_bob_msg = msg.serialize().unwrap();
-
-            stream.write(&serialized_bob_msg).unwrap();
-            println!(
-                "Sent bob's msg, \n {:?} \n awaiting reply... \n",
-                String::from_utf8(serialized_bob_msg.to_vec())
-            );
-
-            let mut buffer = [0; 1024];
-            match stream.read(&mut buffer) {
-                Ok(size) => {
-                    receipt_msgs = signed_event_stream(from_utf8(&buffer[..size]).unwrap())
-                        .unwrap()
-                        .1;
-
-                    println!("Replay: {:?} \n", receipt_msgs);
-                    // println!("Replay: {:?} \n", from_utf8(&buffer[..size]).unwrap());
-                }
-                Err(e) => {
-                    println!("Failed to receive data: {}", e);
-                }
-            }
-        }
-        Err(e) => {
-            println!("Failed to connect: {}", e);
-        }
-    }
-    println!("Terminated.");
-    receipt_msgs
+    let size = stream.read(&mut buffer[..]).await?;
+    let response = from_utf8(&buffer[..size]).unwrap();
+    println!("Received msg back: {}", response);
+    receipt_msgs = parse::signed_event_stream(from_utf8(&buffer[..size]).unwrap())
+        .unwrap()
+        .1;
+    println!("Replay: {:?} \n", receipt_msgs);
+    Ok({})
 }
 
-fn main() {
+
+
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn Error>>  {
     // Parse command line arguments.
     let matches = clapapp::new("get-command-line-args")
         .arg(
@@ -204,29 +164,80 @@ fn main() {
     let port = matches.value_of("port").unwrap_or("49152");
     let address = [host, ":", port].concat();
 
-    let mut alice = Instance::new(
+    // Create instance of KERI
+    let mut keri = KeriInstance::new(
         log_state::LogState::new().unwrap(),
         IdentifierState::default(),
     );
 
-    
-    // Start server and wait for messages
-    alice.listen(address);
-    
-    // Act as client.
-    // Send alice's inception event to other instance and get its response.
-    // let response_msg_from_other =
-    //     send_to_other(address.to_string(), alice.log.log.last().unwrap());
-    // alice.process_response(response_msg_from_other, address.to_string());
-    
+    let mut listener = TcpListener::bind(&address).await?;
+    println!("TDA Listening on: {}", address);
 
-    // alice.log.rotate();
-    // send_to_other(address.to_string(), alice.log.log.last().unwrap());
+    loop {
+        // Asynchronously wait for an inbound socket.
+        let (mut socket, _) = listener.accept().await?;
 
-    //alice.log.rotate();
-    //send_to_other(address.to_string(), alice.log.log.last().unwrap());
+        tokio::spawn(async move {
+            let mut buf = [0; 1024];
 
-    //alice.log.rotate();
-    //send_to_other(address.to_string(), alice.log.log.last().unwrap());
+            // In a loop, read data from the socket
+            loop {
+                let n = socket
+                    .read(&mut buf)
+                    .await
+                    .expect("failed to read data from socket");
 
+                if n == 0 {
+                    return;
+                } else {
+                    // Read message as utf string
+                    let msg = from_utf8(&buf[..n]).unwrap();
+                    // Ignore messages shorted then 4 bytes
+                    if n > 4 {
+                        // Read first 4 characters to see if it match with TDA commands
+                        let command = &msg[0..4];
+                        // Supported commands:
+                        // SEND host port
+                        // ROTA
+                        // else treat everything as KERI Event for processing
+                        match command {
+                            "SEND" => {
+                                println!("Received command: {}", msg);
+                                // Simple parsing of the command
+                                let mut iter = msg.split_whitespace();
+                                iter.next();
+                                // Get host to where send the message
+                                let host = iter.next().unwrap();
+                                let port = iter.next().unwrap();
+                                let address = [host, ":", port].concat();
+                                println!("Send my events to {}", address);
+                                // TODO get the latest event from KeriInstance and send it
+                                // The current problem is how to pass the keri serialized event into this async function
+                                // Spawn new task to not block tpc listner
+                                // let last_event = keri.log.log.last().unwrap();
+                                // let serialized_last_event = last_event.serialize().unwrap();
+                                // println!("Event to send: {}", String::from_utf8(serialized_last_event).unwrap());
+                                // // TODO pass the serialized event to send_event(address, event);
+                                send_event(address).await;
+                            }
+                            "ROTA" => {
+                                println!("Generate rotate event");
+                                // TODO find out how to pass keri instance here
+                                // keri.log.rotate();
+                            }
+                            _ => {
+                                println!("KERI event message. Processing ...");
+                                println!("Keri event: {} ", msg);
+                               //parse_event();
+                                socket
+                                    .write_all(b"Keri on")
+                                    .await
+                                    .expect("failed to write data to socket");
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
 }

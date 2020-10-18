@@ -10,3 +10,4 @@ edition = "2018"
 keri = { git = "https://github.com/decentralized-identity/keriox", branch = "test/direct_mode"}
 ursa = { version = "0.3", default-features = false, features = ["portable"]}
 clap = "2.33.3"
+tokio = { version = "0.2", features = ["full"] }
