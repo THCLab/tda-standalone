@@ -22,3 +22,18 @@ commands. Supported commands:
 SEND host port - send last event to given TDA (via TCP)
 ROTA - generate rotate event
 
+
+## Docker
+
+TDA standalone for ease of testing and deployment is package into docker
+container.
+
+When running docker container make sure that you would setup properly netowrking
+between docker and host as well as other TDA's which you would like to communicate
+with. The simplest scenario is to run docker with host network:
+
+    docker run --rm -p 1234:49152 --name tda --network host hcf/tda-standalone
+
+### Build container
+
+    DOCKER_BUILDKIT=1 docker build . -t hcf/tda-standalone
