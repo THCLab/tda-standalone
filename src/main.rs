@@ -83,7 +83,7 @@ impl KeriInstance {
                     .state
                     .clone()
                     .verify_and_apply(&msg)
-                    .expect("Can't verify bob's message.");
+                    .expect("Can't verify received message.");
                 let receipt = self
                     .log
                     .make_rct(msg.event_message)
@@ -205,11 +205,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         let command = &msg[0..3];
                         match command {
                             "LSE" => {
+                                println!("Current KEL:");
+                                let keri = keri.lock().await;
+                                let kel: Vec<SignedEventMessage> = keri.log.log.clone();
+                                for event in &kel {
+                                    println!("{:?}", &event.event_message.event.event_data);
+                                }
+                            }
+                            "LSR" => {
                                 println!("Current KERL:");
                                 let keri = keri.lock().await;
-                                let kerl: Vec<SignedEventMessage> = keri.log.log.clone();
-                                for event in &kerl {
-                                    println!("{:?}", &event.event_message.event.event_data);
+                                let kerl = keri.log.sigs_map.clone();
+                                for key in kerl.keys() {
+                                    println!("{}", key);
                                 }
                             }
                             "SEN" => {

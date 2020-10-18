@@ -21,7 +21,8 @@ commands. Supported commands:
 
 SEN host port - send last event to given TDA (via TCP)
 ROT - generate rotate event
-LSE - list KERL
+LSE - list KEL (Key Event Log)
+LSE - list KERL (Key Event Receipt Log)
 IXN - generate interaction event
 
 
