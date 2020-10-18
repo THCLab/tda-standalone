@@ -64,7 +64,7 @@ impl KeriInstance {
                     .make_rct(msg.event_message)
                     .expect("Can't make a receipt");
 
-                // Respond with alice's last establishment message and receipt message.
+                // Respond with last establishment message and receipt message.
                 let last_est = self
                     .log
                     .log
@@ -208,6 +208,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         // Read first 4 characters to see if it match with TDA commands
                         let command = &msg[0..3];
                         match command {
+                            "IDS" => {
+                                println!("Identifier state");
+                                let keri = keri.lock().await;
+                                let ids = keri.log.state.clone();
+                                println!("SN: {}", ids.sn);
+
+                            }
                             "LSE" => {
                                 println!("Current KEL:");
                                 let keri = keri.lock().await;

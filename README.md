@@ -24,6 +24,7 @@ ROT - generate rotate event
 LSE - list KEL (Key Event Log)
 LSE - list KERL (Key Event Receipt Log)
 IXN - generate interaction event
+IDS - show sate of the identifier
 
 
 ## Docker
