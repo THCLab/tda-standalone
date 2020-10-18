@@ -1,8 +1,5 @@
-use std::{
-    str::from_utf8,
-    error::Error,
-};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use std::{error::Error, str::from_utf8, sync::Arc};
+use tokio::{io::{AsyncReadExt, AsyncWriteExt}, sync::Mutex};
 use tokio::net::TcpListener;
 use tokio::net::TcpStream;
 
@@ -115,14 +112,13 @@ impl KeriInstance {
 //     }
 // }
 
-async fn send_event(address: String) -> Result<(), Box<dyn Error>> {
+async fn send_event(address: String, last_event: SignedEventMessage) -> Result<(), Box<dyn Error>> {
     println!("Connecting to TDA on: {}", address);
     let mut stream = TcpStream::connect(address).await?;
 
     // TODO find out how to get the event through here
-    // let lastEvent = keri.log.log.last().unwrap();
-    let event = "last event"; //lastEvent.serialize().unwrap().clone();
-    let result = stream.write(event.as_bytes()).await;
+    let event = last_event.serialize().unwrap().clone();//"last event"; //
+    let result = stream.write(&event).await;
     println!("wrote to stream; success={:?}", result.is_ok());
 
     // Read the receipt
@@ -165,10 +161,10 @@ async fn main() -> Result<(), Box<dyn Error>>  {
     let address = [host, ":", port].concat();
 
     // Create instance of KERI
-    let mut keri = KeriInstance::new(
+    let mut keri = Arc::new(Mutex::new(KeriInstance::new(
         log_state::LogState::new().unwrap(),
         IdentifierState::default(),
-    );
+    )));
 
     let mut listener = TcpListener::bind(&address).await?;
     println!("TDA Listening on: {}", address);
@@ -176,7 +172,7 @@ async fn main() -> Result<(), Box<dyn Error>>  {
     loop {
         // Asynchronously wait for an inbound socket.
         let (mut socket, _) = listener.accept().await?;
-
+        let keri = Arc::clone(&keri);
         tokio::spawn(async move {
             let mut buf = [0; 1024];
 
@@ -218,7 +214,10 @@ async fn main() -> Result<(), Box<dyn Error>>  {
                                 // let serialized_last_event = last_event.serialize().unwrap();
                                 // println!("Event to send: {}", String::from_utf8(serialized_last_event).unwrap());
                                 // // TODO pass the serialized event to send_event(address, event);
-                                send_event(address).await;
+                                let keri = keri.lock().await;
+                                let last_event = keri.log.log.last().unwrap().clone();
+
+                                send_event(address, last_event).await;
                             }
                             "ROTA" => {
                                 println!("Generate rotate event");
