@@ -131,7 +131,7 @@ async fn send_event(address: String, last_event: SignedEventMessage) -> Result<(
     println!("Connecting to TDA on: {}", address);
     let mut stream = TcpStream::connect(address).await?;
 
-    let event = last_event.serialize().expect("Can't ").clone();
+    let event = last_event.serialize().expect("Can't deserialize event").clone();
     let result = stream.write(&event).await;
     println!("wrote to stream; success={:?}", result.is_ok());
 
@@ -141,11 +141,11 @@ async fn send_event(address: String, last_event: SignedEventMessage) -> Result<(
 
     let size = stream.read(&mut buffer[..]).await?;
     let response = from_utf8(&buffer[..size]).unwrap();
-    println!("Received msg back: {}", response);
+    println!("Received message back: {}", response);
     receipt_msgs = parse::signed_event_stream(from_utf8(&buffer[..size]).unwrap())
         .unwrap()
         .1;
-    println!("Replay: {:?} \n", receipt_msgs);
+    println!("Received : {:?} \n", receipt_msgs);
     Ok({})
 }
 
@@ -204,11 +204,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         // Read first 4 characters to see if it match with TDA commands
                         let command = &msg[0..3];
                         // Supported commands:
-                        // SEND host port
-                        // ROT
-                        // IXN
+                        // SHW - Show existing list of logs
+                        // ROT - trigger rotation event
+                        // IXN - trigger interaction event
+                        // SEN host port - trigger communicato with specify agent to exchange latest events
                         // else treat everything as KERI Event for processing
                         match command {
+                            "LSE" => {
+                                println!("Current KERL:");
+                                let keri = keri.lock().await;
+                                let kerl: Vec<SignedEventMessage> = keri.log.log.clone();
+                                for event in &kerl {
+                                    println!("{:?}", &event.event_message.event.event_data);
+                                }
+                            }
                             "SEN" => {
                                 println!("Received command: {}", msg);
                                 // Simple parsing of the command
