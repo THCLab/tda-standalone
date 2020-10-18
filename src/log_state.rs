@@ -3,13 +3,14 @@ use std::collections::HashMap;
 use keri::{
     derivation::basic::Basic, derivation::self_addressing::SelfAddressing,
     derivation::self_signing::SelfSigning, error::Error,
-    event::event_data::inception::InceptionEvent, event::event_data::receipt::ReceiptTransferable,
-    event::event_data::rotation::RotationEvent, event::event_data::EventData,
-    event::sections::seal::EventSeal, event::sections::InceptionWitnessConfig,
-    event::sections::KeyConfig, event::sections::WitnessConfig, event::Event, event::EventMessage,
-    event::SerializationFormats, event_message::SignedEventMessage,
-    prefix::AttachedSignaturePrefix, prefix::IdentifierPrefix, prefix::Prefix,
-    state::IdentifierState, util::dfs_serializer,
+    event::event_data::inception::InceptionEvent, event::event_data::interaction::InteractionEvent,
+    event::event_data::receipt::ReceiptTransferable, event::event_data::rotation::RotationEvent,
+    event::event_data::EventData, event::sections::seal::DigestSeal,
+    event::sections::seal::EventSeal, event::sections::seal::Seal,
+    event::sections::InceptionWitnessConfig, event::sections::KeyConfig,
+    event::sections::WitnessConfig, event::Event, event::EventMessage, event::SerializationFormats,
+    event_message::SignedEventMessage, prefix::AttachedSignaturePrefix, prefix::IdentifierPrefix,
+    prefix::Prefix, prefix::SelfAddressingPrefix, state::IdentifierState, util::dfs_serializer,
 };
 use ursa::{
     keys::{PrivateKey, PublicKey},
@@ -18,12 +19,14 @@ use ursa::{
 };
 
 #[derive(Clone)]
+
 pub struct LogState {
     pub log: Vec<SignedEventMessage>,
     pub sigs_map: HashMap<u64, Vec<SignedEventMessage>>,
     pub state: IdentifierState,
     pub keypair: (PublicKey, PrivateKey),
     pub next_keypair: (PublicKey, PrivateKey),
+    pub escrow_sigs: Vec<SignedEventMessage>,
 }
 impl LogState {
     // incept a state and keys
@@ -83,13 +86,14 @@ impl LogState {
             state: s0,
             keypair,
             next_keypair,
+            escrow_sigs: vec![],
         })
     }
 
-    // take a receipt made by validator, verify it and add to sigs_map
+    // take a receipt made by validator, verify it and add to sigs_map or escrow
     pub fn add_sig(
         &mut self,
-        validator: IdentifierState,
+        validator: &IdentifierState,
         sigs: SignedEventMessage,
     ) -> Result<(), Error> {
         match sigs.event_message.event.event_data.clone() {
@@ -102,27 +106,32 @@ impl LogState {
                 // This logic can in future be moved to the correct place in the Kever equivalent here
                 // receipt pref is the ID who made the event being receipted
                 if sigs.event_message.event.prefix == self.state.prefix
-                    // dig is the digest of the event being receipted
-                    && rct.receipted_event_digest
-                        == rct
-                            .receipted_event_digest
-                            .derivation
-                            .derive(&event.event_message.serialize()?)
-                    // seal pref is the pref of the validator
-                    && rct.validator_location_seal.prefix == validator.prefix
-                    // seal dig is the digest of the last establishment event for the validator
-                    && rct.validator_location_seal.event_digest
+                            // dig is the digest of the event being receipted
+                            && rct.receipted_event_digest
+                                == rct
+                                    .receipted_event_digest
+                                    .derivation
+                                    .derive(&event.event_message.serialize()?)
+                            // seal pref is the pref of the validator
+                            && rct.validator_location_seal.prefix == validator.prefix
+                {
+                    if rct.validator_location_seal.event_digest
                         == rct
                             .validator_location_seal
                             .event_digest
                             .derivation
                             .derive(&validator.last)
-                {
-                    validator.verify(&event.event_message.sign(sigs.signatures.clone()))?;
-                    self.sigs_map
-                        .entry(sigs.event_message.event.sn)
-                        .or_insert_with(|| vec![])
-                        .push(sigs);
+                    {
+                        // seal dig is the digest of the last establishment event for the validator, verify the rct
+                        validator.verify(&event.event_message.sign(sigs.signatures.clone()))?;
+                        self.sigs_map
+                            .entry(sigs.event_message.event.sn)
+                            .or_insert_with(|| vec![])
+                            .push(sigs);
+                    } else {
+                        // escrow the seal
+                        self.escrow_sigs.push(sigs)
+                    }
                     Ok(())
                 } else {
                     Err(Error::SemanticError("incorrect receipt binding".into()))
@@ -155,15 +164,48 @@ impl LogState {
         )]))
     }
 
+    pub fn make_ixn(&mut self, payload: String, prev_event: SelfAddressingPrefix) -> Result<SignedEventMessage, Error> {
+        let dig_seal = DigestSeal {
+            dig: SelfAddressingPrefix {
+                derivation: SelfAddressing::Blake2S256,
+                digest: payload.as_bytes().to_vec(),
+            },
+        };
+        let l = &self.state.last;
+        let ev = Event {
+            prefix: self.state.prefix.clone(),
+            sn: self.state.sn + 1,
+            event_data: EventData::Ixn(InteractionEvent {
+                // previous_event_hash: SelfAddressing::Blake3_256.derive(&self.state.last),
+                previous_event_hash: prev_event,
+                data: vec![Seal::Digest(dig_seal)],
+            }),
+        }
+        .to_message(&SerializationFormats::JSON)?;
+
+        let ixn = ev.sign(vec![AttachedSignaturePrefix::new(
+            SelfSigning::Ed25519Sha512,
+            ed25519::Ed25519Sha512::new()
+                .sign(&ev.serialize().unwrap(), &self.keypair.1)
+                .map_err(|e| Error::CryptoError(e))?,
+            0,
+        )]);
+        println!("State 1: {:?}", self.state);
+        self.state = self.state.clone().verify_and_apply(&ixn)?;
+        println!("State 2: {:?}", self.state);
+        Ok(ixn)
+    }
+
     pub fn rotate(&mut self) -> Result<SignedEventMessage, Error> {
         let ed = ed25519::Ed25519Sha512::new();
         let keypair = self.next_keypair.clone();
-        //ed
-        //.keypair(Option::None)
-        //.map_err(|e| Error::CryptoError(e))?;
+        // ed
+        // .keypair(Option::None)
+        // .map_err(|e| Error::CryptoError(e))?;
         let next_keypair = ed
             .keypair(Option::None)
             .map_err(|e| Error::CryptoError(e))?;
+
         let ev = Event {
             prefix: self.state.prefix.clone(),
             sn: self.state.sn + 1,
@@ -196,7 +238,6 @@ impl LogState {
 
         self.state = self.state.clone().verify_and_apply(&rot)?;
 
-        // Shouldn't we add rotation event to log?
         self.log.push(rot.clone());
 
         self.keypair = keypair;

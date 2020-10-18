@@ -1,8 +1,10 @@
 use std::{error::Error, str::from_utf8, sync::Arc};
-use tokio::{io::{AsyncReadExt, AsyncWriteExt}, sync::Mutex};
 use tokio::net::TcpListener;
 use tokio::net::TcpStream;
-
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    sync::Mutex,
+};
 
 use clap::App as clapapp;
 use clap::Arg;
@@ -44,7 +46,7 @@ impl KeriInstance {
             EventData::Vrc(_) => {
                 println!("Recipt message, verifying ...");
                 self.log
-                    .add_sig(self.state.clone(), msg)
+                    .add_sig(&self.state.clone(), msg)
                     .expect("Can't verify receipt msg");
                     println!("Got receipt of {:?}-th event", m.clone().event_message.event.sn);
                 vec![]
@@ -129,8 +131,7 @@ async fn send_event(address: String, last_event: SignedEventMessage) -> Result<(
     println!("Connecting to TDA on: {}", address);
     let mut stream = TcpStream::connect(address).await?;
 
-    // TODO find out how to get the event through here
-    let event = last_event.serialize().unwrap().clone();//"last event"; //
+    let event = last_event.serialize().expect("Can't ").clone();
     let result = stream.write(&event).await;
     println!("wrote to stream; success={:?}", result.is_ok());
 
@@ -148,24 +149,21 @@ async fn send_event(address: String, last_event: SignedEventMessage) -> Result<(
     Ok({})
 }
 
-
-
-
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>>  {
+async fn main() -> Result<(), Box<dyn Error>> {
     // Parse command line arguments.
     let matches = clapapp::new("get-command-line-args")
         .arg(
             Arg::with_name("host")
                 .short('H'.to_string())
                 .help("hostname on which we would listen, default: localhost")
-                .takes_value(true)
+                .takes_value(true),
         )
         .arg(
             Arg::with_name("port")
-            .short('P'.to_string())
-            .help("port on which we would open TCP connections, default: 49152")
-            .takes_value(true)
+                .short('P'.to_string())
+                .help("port on which we would open TCP connections, default: 49152")
+                .takes_value(true),
         )
         .get_matches();
 
@@ -202,15 +200,16 @@ async fn main() -> Result<(), Box<dyn Error>>  {
                     // Read message as utf string
                     let msg = from_utf8(&buf[..n]).unwrap();
                     // Ignore messages shorted then 4 bytes
-                    if n > 4 {
+                    if n > 3 {
                         // Read first 4 characters to see if it match with TDA commands
-                        let command = &msg[0..4];
+                        let command = &msg[0..3];
                         // Supported commands:
                         // SEND host port
-                        // ROTA
+                        // ROT
+                        // IXN
                         // else treat everything as KERI Event for processing
                         match command {
-                            "SEND" => {
+                            "SEN" => {
                                 println!("Received command: {}", msg);
                                 // Simple parsing of the command
                                 let mut iter = msg.split_whitespace();
@@ -224,10 +223,22 @@ async fn main() -> Result<(), Box<dyn Error>>  {
                                 let last_event = keri.log.log.last().unwrap().clone();
                                 send_event(address, last_event).await;
                             }
-                            "ROTA" => {
+                            "ROT" => {
                                 println!("Generate rotate event");
-                                // TODO find out how to pass keri instance here
-                                // keri.log.rotate();
+                                let mut keri = keri.lock().await;
+                                keri.log.rotate();
+                            }
+                            "IXN" => {
+                                let mut iter = msg.split_whitespace();
+                                iter.next();
+                                // Get payload
+                                let payload = iter.next().unwrap();
+                                println!("payload: {}", payload);
+                                let mut keri = keri.lock().await;
+                                // TODO make interaction event
+                                // let ixn = keri.log.make_ixn(payload.to_string());
+                                // println!("IXN: {:?} \n", ixn);
+                                // println!("Last: {:?}\n", keri.log.log.last().unwrap());
                             }
                             // If we do not match any command then probably we are getting keri events
                             _ => {
@@ -237,6 +248,7 @@ async fn main() -> Result<(), Box<dyn Error>>  {
                                 let receipt = keri.parse_event(&msg.to_string());
                                 println!("Respond with {}", String::from_utf8(receipt.clone()).unwrap());
                                 // Send back the receipt
+
                                 socket
                                     .write_all(&receipt)
                                     .await
