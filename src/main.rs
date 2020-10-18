@@ -203,12 +203,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     if n > 3 {
                         // Read first 4 characters to see if it match with TDA commands
                         let command = &msg[0..3];
-                        // Supported commands:
-                        // SHW - Show existing list of logs
-                        // ROT - trigger rotation event
-                        // IXN - trigger interaction event
-                        // SEN host port - trigger communicato with specify agent to exchange latest events
-                        // else treat everything as KERI Event for processing
                         match command {
                             "LSE" => {
                                 println!("Current KERL:");

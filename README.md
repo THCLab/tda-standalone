@@ -19,8 +19,10 @@ By default application runs on localhost and port 49152
 To control TDA you can use telnet connecting on the setup port and send
 commands. Supported commands:
 
-SEND host port - send last event to given TDA (via TCP)
-ROTA - generate rotate event
+SEN host port - send last event to given TDA (via TCP)
+ROT - generate rotate event
+LSE - list KERL
+IXN - generate interaction event
 
 
 ## Docker
