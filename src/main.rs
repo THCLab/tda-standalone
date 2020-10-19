@@ -215,18 +215,23 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                 let msg = format!("SN: {}\n", ids.sn);
 
                                 socket
-                                .write_all(&msg.as_bytes())
-                                .await
-                                .expect("failed to write data to socket");
-
+                                    .write_all(&msg.as_bytes())
+                                    .await
+                                    .expect("failed to write data to socket");
                             }
                             "LSE" => {
                                 println!("Current KEL:");
                                 let keri = keri.lock().await;
                                 let kel: Vec<SignedEventMessage> = keri.log.log.clone();
                                 for signed_message in &kel {
-                                    println!("{:?}", &signed_message.event_message.event.event_data);
-                                    let msg = format!("SN: {:?}\n", &signed_message.event_message.event.event_data);
+                                    println!(
+                                        "{:?}",
+                                        &signed_message.event_message.event.event_data
+                                    );
+                                    let msg = format!(
+                                        "{:?}\n",
+                                        &signed_message.event_message.event.event_data
+                                    );
 
                                     socket
                                         .write_all(&msg.as_bytes())
@@ -238,8 +243,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                 println!("Current KERL:");
                                 let keri = keri.lock().await;
                                 let kerl = keri.log.sigs_map.clone();
-                                for key in kerl.keys() {
-                                    println!("{}", key);
+
+                                for (key, val) in &kerl {
+                                    let msg = format!("{}: {:?}\n", key, val);
+                                    socket
+                                        .write_all(&msg.as_bytes())
+                                        .await
+                                        .expect("failed to write data to socket");
                                 }
                             }
                             "SEN" => {
@@ -258,8 +268,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                 // We can get more than one event in response.
                                 // Not only receipt events, but also other
                                 // types.
-                                let response = send_event(address.clone(),
-                                last_event).await;
+                                let response = send_event(address.clone(), last_event).await;
                                 println!("Got receipts: {:?}", response);
 
                                 for sig_msg in response {
@@ -310,12 +319,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                     }
                                     None => {
                                         socket
-                                        .write_all(b"Cannot parse the payload\n")
-                                        .await
-                                        .expect("failed to write data to socket");
+                                            .write_all(b"Cannot parse the payload\n")
+                                            .await
+                                            .expect("failed to write data to socket");
                                     }
                                 }
-
                             }
                             // If we do not match any command then probably we are getting keri events
                             _ => {
