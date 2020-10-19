@@ -135,17 +135,17 @@ async fn send_event(address: String, last_event: SignedEventMessage) -> Vec<Sign
     println!("Connecting to TDA on: {}", address);
     let mut stream = TcpStream::connect(address).await.unwrap();
 
-    let event = last_event.serialize().expect("Can't deserialize event").clone();
+    let event = last_event
+        .serialize()
+        .expect("Can't deserialize event")
+        .clone();
     let result = stream.write(&event).await;
     println!("wrote to stream; success={:?}", result.is_ok());
 
     // Read the receipt
     let mut buffer = [0; 1024];
-    let mut receipt_msgs: Vec<SignedEventMessage> = vec![];
 
     let size = stream.read(&mut buffer[..]).await.unwrap();
-    let response = from_utf8(&buffer[..size]).unwrap();
-    println!("Received message back: {}", response);
     let receipt_msgs = parse::signed_event_stream(from_utf8(&buffer[..size]).unwrap())
         .unwrap()
         .1;
@@ -212,7 +212,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                 let keri = keri.lock().await;
                                 let ids = keri.log.state.clone();
                                 println!("SN: {}", ids.sn);
-
                             }
                             "LSE" => {
                                 println!("Current KEL:");
@@ -239,22 +238,47 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                 let host = iter.next().unwrap();
                                 let port = iter.next().unwrap();
                                 let address = [host, ":", port].concat();
-                                println!("Send my events to {}", address);
-                                let keri = keri.lock().await;
+                                println!("Send my events to {}", address.clone());
+                                let mut keri = keri.lock().await;
                                 let last_event = keri.log.log.last().unwrap().clone();
-                                let mut keri = keri.clone();
-                                // We can get more then one receipt
-                                let receipts = send_event(address, last_event).await;
-                                println!("Got receipts: {:?}", receipts);
-                                for receipt in receipts {
-                                    match keri.log.add_sig(&keri.state.clone(), receipt.clone()) {
-                                        Ok(_) => {},
-                                        Err(e) => {
-                                            println!("Error adding receipt: {:?}", e);
+
+                                // We can get more than one event in response.
+                                // Not only receipt events, but also other
+                                // types.
+                                let response = send_event(address.clone(),
+                                last_event).await;
+                                // println!("Got receipts: {:?}", response);
+
+                                for sig_msg in response {
+                                    match sig_msg.event_message.event.event_data {
+                                        // If sig_msg is receipt event, verify
+                                        // it and add to sigs_map.
+                                        EventData::Vrc(_) => {
+                                            let validator = keri.clone().state;
+                                            println!("Got receipt from {}\n", address.clone());
+                                            keri.log
+                                                .add_sig(&validator, sig_msg)
+                                                .expect("Can't verify receipt msg.");
+                                        }
+                                        // If sig_msg is event of other type,
+                                        // update keri.state and send receipt of
+                                        // it to responder.
+                                        _ => {
+                                            println!("Got event from {}", address.clone());
+                                            keri.state = keri
+                                                .state
+                                                .clone()
+                                                .verify_and_apply(&sig_msg)
+                                                .expect("Can't verify mesage from response.");
+                                            // Send receipt of message sig_msg.
+                                            let rcpt = keri
+                                                .log
+                                                .make_rct(sig_msg.event_message)
+                                                .expect("Can't make a receipt");
+                                            send_event(address.clone(), rcpt);
                                         }
                                     }
                                 }
-
                             }
                             "ROT" => {
                                 println!("Generate rotate event");

@@ -176,7 +176,7 @@ impl LogState {
             prefix: self.state.prefix.clone(),
             sn: self.state.sn + 1,
             event_data: EventData::Ixn(InteractionEvent {
-                previous_event_hash: SelfAddressing::Blake3_256.derive(&self.state.last), 
+                previous_event_hash: SelfAddressing::Blake3_256.derive(&self.state.last),
                 data: vec![Seal::Digest(dig_seal)],
             }),
         }
