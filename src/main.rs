@@ -212,13 +212,26 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                 let keri = keri.lock().await;
                                 let ids = keri.log.state.clone();
                                 println!("SN: {}", ids.sn);
+                                let msg = format!("SN: {}\n", ids.sn);
+
+                                socket
+                                .write_all(&msg.as_bytes())
+                                .await
+                                .expect("failed to write data to socket");
+
                             }
                             "LSE" => {
                                 println!("Current KEL:");
                                 let keri = keri.lock().await;
                                 let kel: Vec<SignedEventMessage> = keri.log.log.clone();
-                                for event in &kel {
-                                    println!("{:?}", &event.event_message.event.event_data);
+                                for signed_message in &kel {
+                                    println!("{:?}", &signed_message.event_message.event.event_data);
+                                    let msg = format!("SN: {:?}\n", &signed_message.event_message.event.event_data);
+
+                                    socket
+                                        .write_all(&msg.as_bytes())
+                                        .await
+                                        .expect("failed to write data to socket");
                                 }
                             }
                             "LSR" => {
@@ -247,7 +260,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                 // types.
                                 let response = send_event(address.clone(),
                                 last_event).await;
-                                // println!("Got receipts: {:?}", response);
+                                println!("Got receipts: {:?}", response);
 
                                 for sig_msg in response {
                                     match sig_msg.event_message.event.event_data {
@@ -289,9 +302,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                 let mut iter = msg.split_whitespace();
                                 iter.next();
                                 // Get payload
-                                let payload = iter.next().unwrap();
-                                let mut keri = keri.lock().await;
-                                keri.log.make_ixn(payload);
+                                let payload = iter.next();
+                                match payload {
+                                    Some(p) => {
+                                        let mut keri = keri.lock().await;
+                                        keri.log.make_ixn(p);
+                                    }
+                                    None => {
+                                        socket
+                                        .write_all(b"Cannot parse the payload\n")
+                                        .await
+                                        .expect("failed to write data to socket");
+                                    }
+                                }
+
                             }
                             // If we do not match any command then probably we are getting keri events
                             _ => {
