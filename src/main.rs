@@ -244,13 +244,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                 let last_event = keri.log.log.last().unwrap().clone();
                                 let mut keri = keri.clone();
                                 // We can get more then one receipt
-                                let reciepts = send_event(address, last_event).await;
-                                println!("Got receipts: {:?}", reciepts);
-                                for reciept in reciepts {
-                                    match keri.log.add_sig(&keri.state.clone(), reciept.clone()) {
+                                let receipts = send_event(address, last_event).await;
+                                println!("Got receipts: {:?}", receipts);
+                                for receipt in receipts {
+                                    match keri.log.add_sig(&keri.state.clone(), receipt.clone()) {
                                         Ok(_) => {},
                                         Err(e) => {
-                                            println!("Error adding reciept: {:?}", e);
+                                            println!("Error adding receipt: {:?}", e);
                                         }
                                     }
                                 }
