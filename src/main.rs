@@ -131,9 +131,9 @@ impl KeriInstance {
 //     }
 // }
 
-async fn send_event(address: String, last_event: SignedEventMessage) -> Result<(), Box<dyn Error>> {
+async fn send_event(address: String, last_event: SignedEventMessage) -> Vec<SignedEventMessage> {
     println!("Connecting to TDA on: {}", address);
-    let mut stream = TcpStream::connect(address).await?;
+    let mut stream = TcpStream::connect(address).await.unwrap();
 
     let event = last_event.serialize().expect("Can't deserialize event").clone();
     let result = stream.write(&event).await;
@@ -143,14 +143,13 @@ async fn send_event(address: String, last_event: SignedEventMessage) -> Result<(
     let mut buffer = [0; 1024];
     let mut receipt_msgs: Vec<SignedEventMessage> = vec![];
 
-    let size = stream.read(&mut buffer[..]).await?;
+    let size = stream.read(&mut buffer[..]).await.unwrap();
     let response = from_utf8(&buffer[..size]).unwrap();
     println!("Received message back: {}", response);
-    receipt_msgs = parse::signed_event_stream(from_utf8(&buffer[..size]).unwrap())
+    let receipt_msgs = parse::signed_event_stream(from_utf8(&buffer[..size]).unwrap())
         .unwrap()
         .1;
-    println!("Received : {:?} \n", receipt_msgs);
-    Ok({})
+    receipt_msgs
 }
 
 #[tokio::main]
@@ -243,7 +242,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                 println!("Send my events to {}", address);
                                 let keri = keri.lock().await;
                                 let last_event = keri.log.log.last().unwrap().clone();
-                                send_event(address, last_event).await;
+                                let mut keri = keri.clone();
+                                // We can get more then one receipt
+                                let reciepts = send_event(address, last_event).await;
+                                println!("Got receipts: {:?}", reciepts);
+                                for reciept in reciepts {
+                                    match keri.log.add_sig(&keri.state.clone(), reciept.clone()) {
+                                        Ok(_) => {},
+                                        Err(e) => {
+                                            println!("Error adding reciept: {:?}", e);
+                                        }
+                                    }
+                                }
+
                             }
                             "ROT" => {
                                 println!("Generate rotate event");
