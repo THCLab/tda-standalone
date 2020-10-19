@@ -29,11 +29,13 @@ impl KeriInstance {
         }
     }
 
-    fn parse_event(&mut self, event: &String) -> Vec<u8> {
+    fn parse_event(&mut self, event: &str) -> Vec<u8> {
         let mut response: Vec<u8> = vec![];
 
         // Deserialize signed msg
-        let msg = parse::signed_message(event).unwrap().1;
+        let msg = parse::signed_message(event)
+            .expect("Can't parse event msg")
+            .1;
         let m = msg.clone();
 
         println!("Process keri event ...");
@@ -79,7 +81,7 @@ impl KeriInstance {
                 respond
             }
             // if it's rotation event, respond with receipt event.
-            EventData::Rot(_) => {
+            EventData::Rot(_) | EventData::Ixn(_) => {
                 self.state = self
                     .state
                     .clone()
@@ -145,7 +147,7 @@ async fn send_event(address: String, last_event: SignedEventMessage) -> Vec<Sign
     // Read the receipt
     let mut buffer = [0; 1024];
 
-    let size = stream.read(&mut buffer[..]).await.unwrap();
+    let size = stream.read(&mut buffer[..]).await.expect("Can't get size");
     let receipt_msgs = parse::signed_event_stream(from_utf8(&buffer[..size]).unwrap())
         .unwrap()
         .1;
@@ -331,10 +333,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                 println!("Keri event: {} ", msg);
                                 let mut keri = keri.lock().await;
                                 let receipt = keri.parse_event(&msg.to_string());
-                                println!(
-                                    "Respond with {}",
-                                    String::from_utf8(receipt.clone()).unwrap()
-                                );
+                                println!("Respond with {:?}", String::from_utf8(receipt.clone()));
                                 // Send back the receipt
 
                                 socket

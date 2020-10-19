@@ -166,10 +166,7 @@ impl LogState {
 
     pub fn make_ixn(&mut self, payload: &str) -> Result<SignedEventMessage, Error> {
         let dig_seal = DigestSeal {
-            dig: SelfAddressingPrefix {
-                derivation: SelfAddressing::Blake3_256,
-                digest: payload.as_bytes().to_vec(),
-            },
+            dig: SelfAddressing::Blake3_256.derive(payload.as_bytes()),
         };
 
         let ev = Event {
