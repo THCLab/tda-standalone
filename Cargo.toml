@@ -1,0 +1,13 @@
+[package]
+name = "tda-standalone"
+version = "0.1.0"
+authors = ["Edyta Pawlak <edyta.pawlakk@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+keri = { git = "https://github.com/decentralized-identity/keriox", branch = "test/direct_mode"}
+ursa = { version = "0.3", default-features = false, features = ["portable"]}
+clap = "2.33.3"
+tokio = { version = "0.2", features = ["full"] }
